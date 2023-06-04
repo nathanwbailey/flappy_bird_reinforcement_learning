@@ -70,8 +70,9 @@ class Agent():
         plt.title('Training...')
         plt.xlabel('Episode')
         plt.ylabel('Duration')
+        #Plot the durations
         plt.plot(durations_t.numpy())
-        # Take 100 episode averages and plot them too
+        # Take 100 episode averages of the durations and plot them too, to show a running average on the graph
         if len(durations_t) >= 100:
             means = durations_t.unfold(0, 100, 1).mean(1).view(-1)
             means = torch.cat((torch.zeros(99), means))
