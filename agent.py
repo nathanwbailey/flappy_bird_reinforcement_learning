@@ -18,9 +18,10 @@ from itertools import count
 import pygame as pg
 import matplotlib.pyplot as plt
 import torch.optim as optim
+import math
 
 class Agent():
-    def __init__(self, BATCH_SIZE, MEMORY_SIZE, GAMMA, input_dim, output_dim, action_dim, action_dict, EPS_START, EPS_END, EPS_DECAY_VALUE, lr, network_type='DDQN') -> None:
+    def __init__(self, BATCH_SIZE, MEMORY_SIZE, GAMMA, input_dim, output_dim, action_dim, action_dict, EPS_START, EPS_END, EPS_DECAY_VALUE, lr, TAU, network_type='DDQN') -> None:
         #Set all the values up
         self.BATCH_SIZE = BATCH_SIZE
         self.GAMMA = GAMMA
@@ -31,6 +32,7 @@ class Agent():
         self.EPS_END=EPS_END
         self.EPS_DECAY_VALUE=EPS_DECAY_VALUE
         self.eps = EPS_START
+        self.TAU = TAU
         #Select the GPU if we have one
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.episode_durations = []
@@ -44,8 +46,10 @@ class Agent():
         for param in self.target_net.parameters():
             param.requires_grad = False
         #Copy the initial parameters from the policy net to the target net to align them at the start
+        #Diff
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.optimizer = optim.AdamW(self.policy_net.parameters(), lr=lr, amsgrad=True)
+        self.steps_done = 0
     
     #We want to use no gradient computation, as we do not update the networks paramaters
     @torch.no_grad()
@@ -53,13 +57,15 @@ class Agent():
         #Decay and cap the epsilon value
         self.eps = self.eps*self.EPS_DECAY_VALUE
         self.eps = max(self.eps, self.EPS_END)
+        # self.eps = self.EPS_END + (self.EPS_START - self.EPS_END) * math.exp(-1. * self.steps_done / self.EPS_DECAY_VALUE)
         #Take a random action
-        if self.eps > np.random.rand():
-            action_idx = random.randint(0, self.action_dim-1)
-        #Else take a greedy action
-        else:
+        if self.eps < np.random.rand():
             state = state[None, :]
             action_idx = torch.argmax(self.policy_net(state), dim=1).item()
+        #Else take a greedy action
+        else:
+            action_idx = random.randint(0, self.action_dim-1)
+        self.steps_done += 1
         return action_idx
 
     
@@ -81,9 +87,16 @@ class Agent():
         plt.savefig(self.network_type+'_training.png')
     
     #Function to copy the policy net parameters to the target net
-    def update_target_network(self):
-        self.target_net.load_state_dict(self.policy_net.state_dict())
+    # def update_target_network(self):
+    #     self.target_net.load_state_dict(self.policy_net.state_dict())
 
+    def update_target_network(self):
+        target_net_state_dict = self.target_net.state_dict()
+        policy_net_state_dict = self.policy_net.state_dict()
+        #Update the parameters in the target network
+        for key in policy_net_state_dict:
+            target_net_state_dict[key] = policy_net_state_dict[key]*self.TAU + target_net_state_dict[key]*(1-self.TAU)
+            self.target_net.load_state_dict(target_net_state_dict)
     def optimize_model(self):
         #Only pop the data if we have enough for the network
         if len(self.cache_recall) < self.BATCH_SIZE:
@@ -99,23 +112,28 @@ class Agent():
         non_final_next_states = torch.stack([s for s in batch[1] if s is not None])
         #Grab the action and the reward
         action = torch.stack(batch[2])
-        reward = torch.stack(batch[3])
-        next_state_action_values = torch.zeros(self.BATCH_SIZE, dtype=torch.float32)
+        reward = torch.cat(batch[3])
+        next_state_action_values = torch.zeros(self.BATCH_SIZE, dtype=torch.float32, device=self.device)
         #Get the Q values from the policy network and then get the Q value for the given action taken
+        #[32,1]
         state_action_values = self.policy_net(state).gather(1, action)
+        # print(self.target_net(non_final_next_states).max(1, keepdim=True)[0].size())
         #Use the target network to get the maximum Q for the next state across all the actions
         with torch.no_grad():
             next_state_action_values[non_final_mask] = self.target_net(non_final_next_states).max(1)[0]
         #Calcuate the expected state action values as the per equation we use
-        expected_state_action_values = next_state_action_values *self.GAMMA +reward
+        expected_state_action_values = (next_state_action_values * self.GAMMA) + reward
         #Using the L1 Loss, calculate the difference between the expected and predicted values and optimize the policy network only
         loss_fn = torch.nn.SmoothL1Loss()
+        # print(state_action_values.size())
+        #print(expected_state_action_values.size())
         loss = loss_fn(state_action_values, expected_state_action_values.unsqueeze(1))
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
     
     def train(self, episodes, env):
+        self.steps_done = 0
         for episode in range(episodes):
             env.reset_game()
             state = env.getGameState()
