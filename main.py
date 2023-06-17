@@ -16,6 +16,7 @@ action_dict = {0: actions[1], 1: actions[0]}
 
 #get the initial game state
 state = p.getGameState()
+print(state)
 len_state = len(state)
 n_actions = len(action_dict)
 
