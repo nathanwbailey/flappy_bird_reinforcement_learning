@@ -1,5 +1,5 @@
 '''
-Creating the model, will be a deep Q network, either Dueling double deep Q network or double deep Q network
+Creating the model, will be a deep Q network, either Dueling deep Q network or deep Q network
 
 Simple linear neural network used
 
@@ -12,7 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 
 class DQN(torch.nn.Module):
-    def __init__(self, input_dim, output_dim, network_type='DDQN', *args, **kwargs) -> None:
+    def __init__(self, input_dim, output_dim, network_type='DQN', *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -26,7 +26,7 @@ class DQN(torch.nn.Module):
         # # Best action should have advantage of 0
         ## Outputs are combined to generate the Q values
 
-        if network_type == 'DuelingDDQN':
+        if network_type == 'DuelingDQN':
             self.state_values = nn.Linear(512,1)
             self.advantages = nn.Linear(512, output_dim)
         else:
@@ -38,7 +38,7 @@ class DQN(torch.nn.Module):
         x = F.relu6(self.layer3(x))
         x = F.relu6(self.layer4(x))
         x = F.relu6(self.layer5(x))
-        if self.network_type == 'DuelingDDQN':
+        if self.network_type == 'DuelingDQN':
             state_values = self.state_values(x)
             advantages = self.advantages(x)
             output = state_values + (advantages - torch.max((advantages), dim=1, keepdim=True)[0])
